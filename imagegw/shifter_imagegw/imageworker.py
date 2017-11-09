@@ -202,6 +202,50 @@ def pull_image(request, updater=DEFAULT_UPDATER):
         raise NotImplementedError('Unsupported remote type %s' % rtype)
     return False
 
+def _load_docker_savefile(request, filepath, updater):
+    """ Private method to load a docker safe-file images. """
+    cdir = CONFIG['CacheDirectory']
+    edir = CONFIG['ExpandDirectory']
+
+    print "WIP: Not implemented yet"
+    try:
+        options = {}
+        options['filePath'] = filepath
+
+        dfh = dockerv2.DockerSaveFileHandle(options, updater=updater)
+        updater.update_status("LOADING", 'Getting manifest')
+        manifest = dfh.get_image_manifest()
+        request['meta'] = dfh.examine_manifest(manifest)
+        request['id'] = str(request['meta']['id'])
+
+        #if check_image(request):
+        #    return True
+
+        #dfh.pull_layers(manifest, cdir)
+
+        #expandedpath = tempfile.mkdtemp(suffix='extract', \
+        #        prefix=request['id'], dir=edir)
+        #request['expandedpath'] = expandedpath
+
+        updater.update_status("LOADING", 'Extracting Layers')
+        dfh.extract_docker_layers(expandedpath, dfh.get_eldest_layer(), \
+            cachedir=cdir)
+        return True
+    except:
+        logging.warn(sys.exc_value)
+        raise
+
+    return False
+
+def load_image(request, updater=DEFAULT_UPDATER):
+    """
+    load the save-image file and extract the contents
+
+    Returns True on success
+    """
+    print "WIP: Not implemented yet"
+    return False
+
 
 def examine_image(request):
     """
