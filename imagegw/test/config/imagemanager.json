@@ -1,6 +1,6 @@
 {
     "WorkerThreads":8,
-    "LogLevel":"info",
+    "LogLevel":"debug",
     "DefaultLustreReplication": 1,
     "DefaultOstCount": 16,
     "DefaultImageLocation": "index.docker.io",
