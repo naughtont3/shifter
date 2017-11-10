@@ -32,7 +32,7 @@ from time import time, sleep
 from pymongo import MongoClient
 import pymongo.errors
 from shifter_imagegw.auth import Authentication
-from shifter_imagegw.imageworker import dopull, initqueue, doexpire
+from shifter_imagegw.imageworker import dopull, doload, initqueue, doexpire
 import bson
 import celery
 
@@ -360,6 +360,59 @@ class ImageMngr(object):
             self.tasks.append(pullreq)
 
         return rec
+
+    # TJN: Following guide of pull() above and mngrimport in PR #176/#188
+    def load(self, session, image, testmode=0):
+        """
+        load the image from a save.tar archive
+        Takes an auth token, a request object
+        """
+        # TODO: Add userACL limits
+
+        meta = {}
+
+        request = {
+            'system':image['system'],
+            'itype':image['itype'],
+            'pulltag':image['tag'],
+            'filePath': image['filePath'],
+            'format': image['format'],
+            'meta': meta
+        }
+        #self.logger.debug('load called Test Mode=%d', testmode)
+        self.logger.debug('load called for file %s' % (request['filePath']))
+        if not self.check_session(session, request['system']):
+            self.logger.warn('Invalid session on system %s', request['system'])
+            raise OSError("Invalid Session")
+
+        # TODO: Check if request or entry already exists for this image
+
+        # TODO: Add userACL/groupACL checks here
+
+        rec = None
+
+        self.logger.debug("Creating New Load Record")
+        # using new_pull_record for load too 
+        rec = self.new_pull_record(request)
+        ident = rec['_id']
+        self.logger.debug("Setting state load ident %s" %(ident))
+        self.update_mongo_state(ident, 'ENQUEUED')
+        request['tag'] = request['pulltag']
+        self.logger.debug("Calling do load with queue=%s", request['system'])
+
+        pullreq = doload.apply_async([request], queue=request['system'], \
+                                    kwargs={'testmode':testmode})
+
+        memo = "load request queued s=%s t=%s" \
+                    % (request['system'], request['tag'])
+        self.logger.info(memo)
+
+        self.update_mongo(ident, {'last_pull': time()})
+        self.task_image_id[pullreq] = ident
+        self.tasks.append(pullreq)
+
+        return rec
+
 
     def update_mongo_state(self, ident, state, info=None):
         """

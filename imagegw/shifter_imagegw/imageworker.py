@@ -463,6 +463,41 @@ def dopull(self, request, testmode=0):
 
 
 @QUEUE.task(bind=True)
+def doload(self, request, testmode=0):
+    """
+    Celery task to do the load workflow of loading an image and processing it
+    """
+    logging.debug("doload system=%s tag=%s", request['system'], request['tag'])
+    updater = Updater(self.update_state)
+    return img_load(request, updater, testmode=testmode)
+
+def img_load(request, updater, testmode=0):
+    """
+    Celery task to do the load workflow of loading an image and processing it
+    """
+    tag = request['tag']
+    logging.debug("Worker: img_load system=%s tag=%s", request['system'], tag)
+    # TJN: FOR NOW JUST FORCE INTO TESTMODE FOR DEBUGGING
+
+    # TODO: Wrap this in a testmode==1 check
+    states = ('LOADING', 'TRANSFER', 'READY')
+    for state in states:
+        logging.info("Worker: testmode Updating to %s", state)
+        updater.update_status(state, state)
+        sleep(1)
+    ident = '%x' % randint(0, 100000)
+    ret = {
+        'id': ident,
+        'entrypoint': ['./blah'],
+        'workdir': '/root',
+        'env':['FOO=bar', 'BAZ=boz']
+    }
+    return ret
+
+    # TODO: step1, step2,... step3
+
+
+@QUEUE.task(bind=True)
 def doexpire(self, request, testmode=0):
     """
     Celery task to do the full workflow of pulling an image and transferring it
