@@ -207,10 +207,12 @@ def _load_docker_savefile(request, filepath, updater):
     cdir = CONFIG['CacheDirectory']
     edir = CONFIG['ExpandDirectory']
 
-    print "WIP: Not implemented yet"
+    print "WIP: Entering _load_docker_savefile"
     try:
         options = {}
         options['filePath'] = filepath
+
+    # TODO:  FINISH CODING/TESTING THIS ROUTINE
 
         dfh = dockerv2.DockerSaveFileHandle(options, updater=updater)
         updater.update_status("LOADING", 'Getting manifest')
@@ -243,8 +245,12 @@ def load_image(request, updater=DEFAULT_UPDATER):
 
     Returns True on success
     """
-    print "WIP: Not implemented yet"
-    return False
+    if 'filePath' not in request:
+        raise KeyError('%s not found in request' % 'filePath')
+
+    filepath = request['filePath']
+    logging.debug("doing image load for file=%s", filepath)
+    return _load_docker_savefile(request, filepath, updater)
 
 
 def examine_image(request):
@@ -469,32 +475,84 @@ def doload(self, request, testmode=0):
     """
     logging.debug("doload system=%s tag=%s", request['system'], request['tag'])
     updater = Updater(self.update_state)
-    return img_load(request, updater, testmode=testmode)
 
-def img_load(request, updater, testmode=0):
-    """
-    Celery task to do the load workflow of loading an image and processing it
-    """
     tag = request['tag']
-    logging.debug("Worker: img_load system=%s tag=%s", request['system'], tag)
-    # TJN: FOR NOW JUST FORCE INTO TESTMODE FOR DEBUGGING
+    logging.debug("Worker: doload system=%s tag=%s file=%s",
+                  request['system'], tag, request['filePath'])
 
-    # TODO: Wrap this in a testmode==1 check
-    states = ('LOADING', 'TRANSFER', 'READY')
-    for state in states:
-        logging.info("Worker: testmode Updating to %s", state)
-        updater.update_status(state, state)
-        sleep(1)
-    ident = '%x' % randint(0, 100000)
-    ret = {
-        'id': ident,
-        'entrypoint': ['./blah'],
-        'workdir': '/root',
-        'env':['FOO=bar', 'BAZ=boz']
-    }
-    return ret
+    # TODO: REMOVE THIS TESTING HARDCODE
+    # XXX: TJN - FOR NOW JUST FORCE INTO TESTMODE FOR DEBUGGING
+#    if testmode == 1:
+    if True:
+        states = ('LOADING', 'EXAMINATION', 'CONVERTING', 'TRANSFER', 'READY')
+        for state in states:
+            logging.info("Worker: testmode Updating to %s", state)
+            updater.update_status(state, state)
+            sleep(1)
+        ident = '%x' % randint(0, 100000)
+        ret = {
+            'id': ident,
+            'entrypoint': ['./blah'],
+            'workdir': '/root',
+            'env':['FOO=bar', 'BAZ=boz']
+        }
+        return ret
+    elif testmode == 2:
+        logging.info("Worker: testmode 2 setting failure")
+        raise OSError('task failed')
+    try:
+        # Step-1. LOAD save.tar archive
+        updater.update_status('LOADING', 'LOADING')
+        print "loading image %s" % request['filePath']
+        if not load_image(request, updater=updater):
+            print "doload failed"
+            logging.info("Worker: Load failed")
+            raise OSError('Load failed')
 
-    # TODO: step1, step2,... step3
+        if 'meta' not in request:
+            raise OSError('Metadata not populated')
+
+        # TODO: See if we need to modify the 'check_image() routine for
+        #       filepath case???
+
+        # Step-2. CHECK image
+        if not check_image(request):
+
+            # Step 2 - CHECK image
+            updater.update_status('EXAMINATION', 'Examining archive')
+            print "Worker: examining image %s file %s" % (request['tag'], request['filePath'])
+            if not examine_image(request):
+                raise OSError('Examine failed')
+
+            # Step-3. CONVERT
+            updater.update_status('CONVERSION', 'Converting image')
+            print "Worker: converting image %s" % request['tag']
+            if not convert_image(request):
+                raise OSError('Conversion failed')
+            if not write_metadata(request):
+                raise OSError('Metadata creation failed')
+
+            # Step 4 - TRANSFER
+            updater.update_status('TRANSFER', 'Transferring image')
+            logging.info("Worker: transferring image %s", request['tag'])
+            print "Worker: transferring image %s" % request['tag']
+            if not transfer_image(request):
+                raise OSError('Transfer failed')
+
+        # Step-5. DONE, cleanup
+        updater.update_status('READY', 'Image ready')
+        cleanup_temporary(request)
+        return request['meta']
+
+    except:
+        logging.error("ERROR: doload failed system=%s tag=%s", \
+                      request['system'], request['tag'])
+        print sys.exc_value
+        self.update_state(state='FAILURE')
+
+        # TODO: Make sure cleanup understands how to cleanup load case
+        cleanup_temporary(request)
+        raise
 
 
 @QUEUE.task(bind=True)
