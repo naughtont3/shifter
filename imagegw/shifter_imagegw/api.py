@@ -80,7 +80,7 @@ def not_found(error=None):
 @app.route('/')
 def apihelp():
     """ API helper return """
-    return "{lookup,pull,expire,list}"
+    return "{lookup,pull,expire,list,load}"
 
 def create_response(rec):
     """ Helper function to create a formated JSON response. """
