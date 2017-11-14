@@ -647,7 +647,7 @@ def pull_image(options, repo, tag, cachedir='./', expanddir='./'):
     handle.extract_docker_layers(expandedpath, layer, cachedir=cachedir)
     return resp
 
-####
+
 class DockerSaveFileHandle(object):
     """
     A class for loading and unpacking docker save images.
@@ -690,31 +690,11 @@ class DockerSaveFileHandle(object):
 
     def tjn_debug_dump(self):
         print "- - - - -  DEBUG DUMP - - - - - - - - - - - - - - - - -"
-        if self.file_path is not None:
-            print "DBG:   file_path: %s" % self.file_path 
-        else:
-            print "DBG:   file_path: %s" % "NONE"
-
-        if self.scratch_dir is not None:
-            print "DBG: scratch_dir: %s" % self.scratch_dir
-        else:
-            print "DBG: scratch_dir: %s" % "NONE"
-
-        if self.repo is not None:
-            print "DBG:        repo: %s" % self.repo
-        else:
-            print "DBG:        repo: %s" % "NONE"
-
-        if self.tag is not None:
-            print "DBG:         tag: %s" % self.tag
-        else:
-            print "DBG:         tag: %s" % "NONE"
-
-        if self.image_id is not None:
-            print "DBG:    image_id: %s" % self.image_id
-        else:
-            print "DBG:    image_id: %s" % "NONE"
-
+        print "DBG:   file_path: %s" % self.file_path
+        print "DBG: scratch_dir: %s" % self.scratch_dir
+        print "DBG:        repo: %s" % self.repo
+        print "DBG:         tag: %s" % self.tag
+        print "DBG:    image_id: %s" % self.image_id
         print "- - - - - - - - - - - - - - - - - - - - - - - - - - - -"
         return True
 
@@ -731,7 +711,7 @@ class DockerSaveFileHandle(object):
         """Prevent a layer from being extracted/examined"""
         ## TODO: TJN - Not sure BlobSum stuff exists in save.tar archives
         ## TODO: add better verfication of the blobsum, potentially give other
-        ## routes to mask out a layer with this function
+        ##       ways to mask out a layer with this function
         if blobsum not in self.excludeBlobSums:
             self.excludeBlobSums.append(blobsum)
 
@@ -874,60 +854,14 @@ class DockerSaveFileHandle(object):
 
         return config
 
-
     def examine_manifest(self, manifest):
         """Extract metadata from manifest."""
         raise NotImplementedError
-#         self.log("PULLING", 'Constructing manifest')
-# 
-#         # TODO: TJN we need save.tar file version of construct_image_metadata
-#         # TODO: we will also need to ensure we can get an 'id' from
-#         #       the meta dict (youngest layer dict), may have to take
-#         #       that from the top-level manifest.json data
-#         #       Example: handle.construct_savefile_metadata(manifest)
-#         (eldest, youngest) = _construct_image_metadata(manifest)
-# 
-#         self.eldest = eldest
-#         self.youngest = youngest
-#         meta = youngest
-# 
-#         # TODO: Insert code to extract Env/Entrypoint etc.
-#         resp = {'id': meta['id']}
-#         if 'config' in meta:
-#             config = meta['config']
-#             if 'Env' in config:
-#                 resp['env'] = config['Env']
-#             if 'Entrypoint' in config:
-#                 resp['entrypoint'] = config['Entrypoint']
-#         return resp
 
     def construct_savefile_metadata(self, manifest):
         # TODO: TJN adding class specific version for this routine
         """ Extract metadata and return eldest, youngest layers """
         raise NotImplementedError
-
-    def pull_layers(self, manifest, cachedir):
-        ## XXX: TJN Should this return None instead?
-        # The save.tar has all needed files so no need to pull anything
-        raise NotImplementedError
-
-#        """Download layers to cachedir if they do not exist."""
-#        ## TODO: don't rely on self.eldest to demonstrate that
-#        ## examine_manifest has run
-#        if self.eldest is None:
-#            self.examine_manifest(manifest)
-#        layer = self.eldest
-#        while layer is not None:
-#            if layer['fsLayer']['blobSum'] in self.excludeBlobSums:
-#                layer = layer['child']
-#                continue
-#
-#            memo = "Pulling layer %s" % layer['fsLayer']['blobSum']
-#            self.log("PULLING", memo)
-#
-#            self.save_layer(layer['fsLayer']['blobSum'], cachedir)
-#            layer = layer['child']
-#        return True
 
     def _get_auth_header(self):
         """
@@ -946,115 +880,115 @@ class DockerSaveFileHandle(object):
         """Perform checksum calculation to exhaustively validate download."""
         raise NotImplementedError
 
-    # TJN: Based on extract_docker_layers, but modified slightly for 
-    #      save.tar archive case.  Also, just pass all layers in directly.
-    def extract_docker_savefile_layers(self, expand_dir, layers, cachedir='./'):
-        ###
-        # TODO: TJN This is where we get the proper files from tar layers
-        #       INSERT hacked version of that code here.
-        #       Note, it slightly differs b/c of the different manifest
-        #       format.
-        ###
-        """Analyze files in docker layers and extract minimal set to base_path.
-        """
-        def filter_layer(layer_members, to_remove):
-            """Remove members and members starting with to_remove from layer"""
-            trailing = '/' if not to_remove.endswith('/') else ''
-            prefix_to_remove = to_remove + trailing
-
-            return [x for x in layer_members \
-                    if (not x.name == to_remove
-                        and not x.name.startswith(prefix_to_remove))]
-
-        # TODO: Cleanup pathing
-        scratch_dir = cachedir
-
-        layer_paths = []
-        tar_file_refs = []
-        for x in layers:
-            #print "Layer: %s" % x
-            try:
-                tfname = scratch_dir + "/" + x
-                #print "Expand: %s" % tfname
-                tar = tarfile.open(tfname)
-                tar_file_refs.append(tar)
-            
-                ## get directory of tar contents
-                members = tar.getmembers()
-
-                ## remove all illegal files
-                members = filter_layer(members, 'dev/')
-                members = filter_layer(members, '/')
-                members = [z for z in members if not z.name.find('..') >= 0]
-
-                ## find all whiteouts
-                whiteouts = [z for z in members \
-                        if z.name.find('/.wh.') >= 0 or z.name.startswith('.wh.')]
-
-                ## remove the whiteout tags from this layer
-                for wh_ in whiteouts:
-                    members.remove(wh_)
-
-                ## remove the whiteout targets from all ancestral layers
-                for idx, ancs_layer in enumerate(layer_paths):
-                    for wh_ in whiteouts:
-                        path = wh_.name.replace('/.wh.', '/')
-                        if path.startswith('.wh.'):
-                            path = path[4:]
-                        ancs_layer_iter = (z for z in ancs_layer if z.name == path)
-                        ancs_member = next(ancs_layer_iter, None)
-                        if ancs_member:
-                            ancs_layer = filter_layer(ancs_layer, path)
-                    layer_paths[idx] = ancs_layer
-            
-                ## remove identical paths (not dirs) from all ancestral layers
-                notdirs = [z.name for z in members if not z.isdir()]
-                for idx, ancs_layer in enumerate(layer_paths):
-                    ancs_layer = [z for z in ancs_layer if not z.name in notdirs]
-                    layer_paths[idx] = ancs_layer
-
-                ## push this layer into the collection
-                layer_paths.append(members)
-
-            except:
-                raise
-
-
-        # Extract the selected files from layers
-        layer_idx = 0
-        for x in layers:
-            #print "Layer: %s" % x
-            tar = tar_file_refs[layer_idx]
-            members = layer_paths[layer_idx]
-            for m in members:
-                print "M: %s" % m
-            layer_idx += 1
-
-        #
-        # Extract Tar layers
-        #
-        layer_idx = 0
-        for x in layers:
-            #print "Layer: %s" % x
-            try:
-                tar = tar_file_refs[layer_idx]
-                members = layer_paths[layer_idx]
-                #print "Expand: %s" % tar
-                tar.extractall(path=expand_dir, members=members)
-
-                layer_idx += 1
-            except:
-                raise
-
-        for tar in tar_file_refs:
-            tar.close()
-
-        print "Expand_dir: %s" % expand_dir
-
-        # fix permissions on the extracted files
-        cmd = ['chmod', '-R', 'a+rX,u+w', base_path]
-        pfp = Popen(cmd)
-        pfp.communicate()
+#     # TJN: Based on extract_docker_layers, but modified slightly for
+#     #      save.tar archive case.  Also, just pass all layers in directly.
+#     def extract_docker_savefile_layers(self, expand_dir, layers, cachedir='./'):
+#         ###
+#         # TODO: TJN This is where we get the proper files from tar layers
+#         #       INSERT hacked version of that code here.
+#         #       Note, it slightly differs b/c of the different manifest
+#         #       format.
+#         ###
+#         """Analyze files in docker layers and extract minimal set to base_path.
+#         """
+#         def filter_layer(layer_members, to_remove):
+#             """Remove members and members starting with to_remove from layer"""
+#             trailing = '/' if not to_remove.endswith('/') else ''
+#             prefix_to_remove = to_remove + trailing
+#
+#             return [x for x in layer_members \
+#                     if (not x.name == to_remove
+#                         and not x.name.startswith(prefix_to_remove))]
+#
+#         # TODO: Cleanup pathing
+#         scratch_dir = cachedir
+#
+#         layer_paths = []
+#         tar_file_refs = []
+#         for x in layers:
+#             #print "Layer: %s" % x
+#             try:
+#                 tfname = scratch_dir + "/" + x
+#                 #print "Expand: %s" % tfname
+#                 tar = tarfile.open(tfname)
+#                 tar_file_refs.append(tar)
+#
+#                 ## get directory of tar contents
+#                 members = tar.getmembers()
+#
+#                 ## remove all illegal files
+#                 members = filter_layer(members, 'dev/')
+#                 members = filter_layer(members, '/')
+#                 members = [z for z in members if not z.name.find('..') >= 0]
+#
+#                 ## find all whiteouts
+#                 whiteouts = [z for z in members \
+#                         if z.name.find('/.wh.') >= 0 or z.name.startswith('.wh.')]
+#
+#                 ## remove the whiteout tags from this layer
+#                 for wh_ in whiteouts:
+#                     members.remove(wh_)
+#
+#                 ## remove the whiteout targets from all ancestral layers
+#                 for idx, ancs_layer in enumerate(layer_paths):
+#                     for wh_ in whiteouts:
+#                         path = wh_.name.replace('/.wh.', '/')
+#                         if path.startswith('.wh.'):
+#                             path = path[4:]
+#                         ancs_layer_iter = (z for z in ancs_layer if z.name == path)
+#                         ancs_member = next(ancs_layer_iter, None)
+#                         if ancs_member:
+#                             ancs_layer = filter_layer(ancs_layer, path)
+#                     layer_paths[idx] = ancs_layer
+#
+#                 ## remove identical paths (not dirs) from all ancestral layers
+#                 notdirs = [z.name for z in members if not z.isdir()]
+#                 for idx, ancs_layer in enumerate(layer_paths):
+#                     ancs_layer = [z for z in ancs_layer if not z.name in notdirs]
+#                     layer_paths[idx] = ancs_layer
+#
+#                 ## push this layer into the collection
+#                 layer_paths.append(members)
+#
+#             except:
+#                 raise
+#
+#
+#         # Extract the selected files from layers
+#         layer_idx = 0
+#         for x in layers:
+#             #print "Layer: %s" % x
+#             tar = tar_file_refs[layer_idx]
+#             members = layer_paths[layer_idx]
+#             for m in members:
+#                 print "M: %s" % m
+#             layer_idx += 1
+#
+#         #
+#         # Extract Tar layers
+#         #
+#         layer_idx = 0
+#         for x in layers:
+#             #print "Layer: %s" % x
+#             try:
+#                 tar = tar_file_refs[layer_idx]
+#                 members = layer_paths[layer_idx]
+#                 #print "Expand: %s" % tar
+#                 tar.extractall(path=expand_dir, members=members)
+#
+#                 layer_idx += 1
+#             except:
+#                 raise
+#
+#         for tar in tar_file_refs:
+#             tar.close()
+#
+#         print "Expand_dir: %s" % expand_dir
+#
+#         # fix permissions on the extracted files
+#         cmd = ['chmod', '-R', 'a+rX,u+w', base_path]
+#         pfp = Popen(cmd)
+#         pfp.communicate()
 
 
     def inflate_savefile(self, options, expand_dir, cache_dir):
@@ -1075,13 +1009,13 @@ class DockerSaveFileHandle(object):
             tar.close()
             print "DBG: Extracted %s to %s" % (self.file_path, self.scratch_dir)
         except:
-            raise 
+            raise
         #    raise ValueError("failed while opening archive")
 
         manifest_file = self.scratch_dir + "/manifest.json"
         print "DBG: Manifest-file: %s" % manifest_file
 
-        json_data = open(manifest_file) 
+        json_data = open(manifest_file)
         jdata = json.load(json_data)
         # print "====================================================================="
         # print json.dumps(jdata, sort_keys=True, indent=4, separators=(',', ':'))
@@ -1089,7 +1023,7 @@ class DockerSaveFileHandle(object):
 
 
         config_file = jdata[0]['Config']
-        print "DBG: Manifest-CfgFile: %s" % config_file 
+        print "DBG: Manifest-CfgFile: %s" % config_file
         image_id, _junk = config_file.split(".")
 
         # Just take the 1st repotag (not sure if we can have more?)
@@ -1132,11 +1066,11 @@ class DockerSaveFileHandle(object):
         #       but the 'image_config_file' also has history and other entries.
         # NOTE: The format of this 'manifest' info is not the same as
         #       what we have with a loaded image, we have subset of data
-        #       that we must use to create/initialize full data, 
+        #       that we must use to create/initialize full data,
         #       e.g., 'id' key not in the 'config' dictionary in save.tar
         #       manifest.json or image_config_file.
         ################
-        # Get image config details (i.e., metadata) 
+        # Get image config details (i.e., metadata)
         try:
             #config = cdata[0]['Config']  # if use <topdir>/<id>.json
             config = cdata['config']      # if use <topdir>/<youngest_layer>/json
@@ -1154,7 +1088,7 @@ class DockerSaveFileHandle(object):
             entrypt = config['Entrypoint']
             print "Entrypoint: %s" % entrypt
 
-        # HACKS: set so we pass out the metadata 
+        # HACKS: set so we pass out the metadata
         config['env'] = config['Env']
         config['entrypoint'] = config['Entrypoint']
         options['env'] = config['Env']
@@ -1171,11 +1105,10 @@ class DockerSaveFileHandle(object):
             config['repo'] = self.tag
 
         #return config
-###########
 
         ###
         # TODO: TJN This is where we get the proper files from tar layers.
-        #       Note, it slightly differs from pull b/c of the different 
+        #       Note, it slightly differs from pull b/c of the different
         #       manifest format in save.tar layout.
         ###
         def filter_layer(layer_members, to_remove):
@@ -1196,7 +1129,7 @@ class DockerSaveFileHandle(object):
                 #print "Expand: %s" % tfname
                 tar = tarfile.open(tfname)
                 tar_file_refs.append(tar)
-            
+
                 ## get directory of tar contents
                 members = tar.getmembers()
 
@@ -1224,7 +1157,7 @@ class DockerSaveFileHandle(object):
                         if ancs_member:
                             ancs_layer = filter_layer(ancs_layer, path)
                     layer_paths[idx] = ancs_layer
-            
+
                 ## remove identical paths (not dirs) from all ancestral layers
                 notdirs = [z.name for z in members if not z.isdir()]
                 for idx, ancs_layer in enumerate(layer_paths):
@@ -1283,342 +1216,77 @@ class DockerSaveFileHandle(object):
         pfp = Popen(cmd)
         pfp.communicate()
 
-### # ORIG DRIVER
-###         #%%%%
-###         base_working_dir = '/tmp/TJNscratchDIR'
-### 
-###         archive_file = str(sys.argv[1])
-###         scratch_dir = tempfile.mkdtemp(suffix='scratch',
-###                                        prefix='FooID',
-###                                        dir=base_working_dir)
-### 
-###         try:
-###             tar = tarfile.open(archive_file)
-###             #for t in tar:
-###             #    print "TarMember: %s" % str(t.name)
-###             tar.extractall(scratch_dir)
-###             tar.close()
-###             #print "Extracted %s to %s" % (archive_file, scratch_dir)
-###            # expandedpath = os.path.join(expanddir, str(config_file))
-###            # if not os.path.exists(expandedpath):
-###            #     os.mkdir(expandedpath)
-###         except:
-###             raise 
-###         #    raise ValueError("failed while opening archive")
-### 
-###         manifest_file = scratch_dir + "/manifest.json"
-###         print "Manifest file: %s" % manifest_file
-### 
-###         #json_data = open('manifest.json') 
-###         json_data = open(manifest_file) 
-###         data = json.load(json_data)
-###         # print "====================================================================="
-###         # print json.dumps(data, sort_keys=True, indent=4, separators=(',', ':'))
-###         # print "====================================================================="
-### 
-### 
-###         #print "CONFIG-INFO: ", config_file 
-###         config_file = data[0]['Config']
-###         image_id, _junk = config_file.split(".")
-### 
-###         # Just take the 1st repotag (not sure if we can have more?)
-###         repotag = data[0]['RepoTags'][0]
-###         repo,tag = repotag.split(":")
-###         print "REPOTAG: ", repotag
-###         print "   REPO: ", repo
-###         print "    TAG: ", tag
-###         print "ImageID: %s " % image_id
-### 
-###         expand_dir = os.path.join(scratch_dir, "expand")
-###         if not os.path.exists(expand_dir):
-###             os.mkdir(expand_dir)
-### 
-###         layers = data[0]['Layers']
-###         youngest = layers[len(layers)-1]
-###         youngest_id = (youngest.split("/"))[0]
-###         print "DBG: youngest_id: %s" % youngest_id
-###         image_config_file = os.path.join(scratch_dir, youngest_id, "json")
-###         print "  Config file: %s" % image_config_file 
-### 
-### 
-###         # Get path to 'config' file within image manifest archive
-###         try:
-###             #print "DBG: scratch_dir: %s" % scratch_dir
-###             #config_file = scratch_dir + "/" + str(data[0]['Config'])
-###             #config_file = os.path.join(scratch_dir, str(data[0]['Config']))
-###             #config_file = scratch_dir + "/" + str(data[0]['Config'])
-###             json_cdata = open(image_config_file)
-###             cdata = json.load(json_cdata)
-###         except:
-###             raise
-###         print "=================== Config Data ====================================="
-###         print json.dumps(cdata, sort_keys=True, indent=4, separators=(',', ':'))
-###         print "====================================================================="
-### 
-###         ################
-###         # NOTE: The 'youngest' layer for manifest should match
-###         #       the config info we get from 'image_config_file' (see above)
-###         #       but the 'image_config_file' also has history and other entries.
-###         # NOTE: The format of this 'manifest' info is not the same as
-###         #       what we have with a loaded image, we have subset of data
-###         #       that we must use to create/initialize full data, 
-###         #       e.g., 'id' key not in the 'config' dictionary in save.tar
-###         #       manifest.json or image_config_file.
-###         ################
-### 
-###         # Get image config details (i.e., metadata) 
-###         try:
-###             #config = cdata[0]['Config']  # if use <topdir>/<id>.json
-###             config = cdata['config']      # if use <topdir>/<youngest_layer>/json
-###         except:
-###             raise
-### 
-###         # for x in config:
-###         #     if x == 'Env':
-###         #         print "Env:"
-###         #         envdata = config['Env']
-###         #         for e in envdata:
-###         #             k,v = e.split("=")
-###         #             print "   %s = %s" % (k,v)
-###         #     else:
-###         #         print "config-s: %s = %s" % (x, config[x])
-### 
-###         # Metadata
-###         if 'Env' in config:
-###             envdata = config['Env']
-###             for e in envdata:
-###                 k,v = e.split("=")
-###                 print " ENV:  %s = %s" % (k,v)
-### 
-###         if 'Entrypoint' in config:
-###             entrypt = config['Entrypoint']
-###             print "Entrypoint: %s" % entrypt
-### 
-###         ####
-###         # TJN Following code lifted from Shifter extract_docker_layers()
-###         #  (file 'imagegw/shifter_imagegw/dockerv2.py') and is here to 
-###         #  remove files/dirs from tar layers we do not want
-###         #  This was slightly modified for local prototype code.
-###         ####
-### 
-###         def filter_layer(layer_members, to_remove):
-###             """Remove members and members starting with to_remove from layer"""
-###             trailing = '/' if not to_remove.endswith('/') else ''
-###             prefix_to_remove = to_remove + trailing
-### 
-###             return [x for x in layer_members \
-###                     if (not x.name == to_remove
-###                         and not x.name.startswith(prefix_to_remove))]
-### 
-### 
-###         #
-###         # Prune Tar layer items
-###         #
-###         layer_paths = []
-###         tar_file_refs = []
-###         for x in layers:
-###             #print "Layer: %s" % x
-###             try:
-###                 tfname = scratch_dir + "/" + x
-###                 #print "Expand: %s" % tfname
-###                 tar = tarfile.open(tfname)
-###                 tar_file_refs.append(tar)
-###             
-###                 ## get directory of tar contents
-###                 members = tar.getmembers()
-### 
-###                 ## remove all illegal files
-###                 members = filter_layer(members, 'dev/')
-###                 members = filter_layer(members, '/')
-###                 members = [z for z in members if not z.name.find('..') >= 0]
-### 
-###                 ## find all whiteouts
-###                 whiteouts = [z for z in members \
-###                         if z.name.find('/.wh.') >= 0 or z.name.startswith('.wh.')]
-### 
-###                 ## remove the whiteout tags from this layer
-###                 for wh_ in whiteouts:
-###                     members.remove(wh_)
-### 
-###                 ## remove the whiteout targets from all ancestral layers
-###                 for idx, ancs_layer in enumerate(layer_paths):
-###                     for wh_ in whiteouts:
-###                         path = wh_.name.replace('/.wh.', '/')
-###                         if path.startswith('.wh.'):
-###                             path = path[4:]
-###                         ancs_layer_iter = (z for z in ancs_layer if z.name == path)
-###                         ancs_member = next(ancs_layer_iter, None)
-###                         if ancs_member:
-###                             ancs_layer = filter_layer(ancs_layer, path)
-###                     layer_paths[idx] = ancs_layer
-###             
-###                 ## remove identical paths (not dirs) from all ancestral layers
-###                 notdirs = [z.name for z in members if not z.isdir()]
-###                 for idx, ancs_layer in enumerate(layer_paths):
-###                     ancs_layer = [z for z in ancs_layer if not z.name in notdirs]
-###                     layer_paths[idx] = ancs_layer
-### 
-###                 ## push this layer into the collection
-###                 layer_paths.append(members)
-### 
-###             except:
-###                 raise
-### 
-###         layer_idx = 0
-###         for x in layers:
-###             #print "Layer: %s" % x
-###             tar = tar_file_refs[layer_idx]
-###             members = layer_paths[layer_idx]
-###             for m in members:
-###                 print "M: %s" % m
-###             layer_idx += 1
-### 
-###         #
-###         # Extract Tar layers
-###         #
-###         layer_idx = 0
-###         for x in layers:
-###             #print "Layer: %s" % x
-###             try:
-###                 tar = tar_file_refs[layer_idx]
-###                 members = layer_paths[layer_idx]
-###                 #print "Expand: %s" % tar
-###                 tar.extractall(path=expand_dir, members=members)
-### 
-###                 layer_idx += 1
-###             except:
-###                 raise
-### 
-###         for tar in tar_file_refs:
-###             tar.close()
-### 
-###         # TODO: fix permissions on extracted files
-###         print "Expand_dir: %s" % expand_dir
-### 
-###         # Shifter convert(fmt, expand_path, image_path)
-###         fmt = 'squashfs'
-###         image_path = os.path.join(base_working_dir, '%s.%s' % (image_id, fmt))
-### 
-###         try:
-###             ####
-###             # TJN: Remember I renamed 'converters.py' to 'shifter_converters.py'
-###             #      so the namespace changed from "converters.convert()"
-###             ####
-###             if not shifter_converters.convert(fmt, expand_dir, image_path):
-###                 raise OSError('Convert image failed')
-###             print "##################################################"
-###             print "  Created image: %s" % image_path
-###             print "  Metadata file: TJN - TODO"
-###             print "##################################################"
-###             #meta =
-###             #metafile = 
-###             #if not shifter_converters.writemeta(fmt, meta, metafile):
-###             #    raise OSError('Metadata file creation failed')
-###             #print "DELETING ExpandDir: %s " % expand_dir
-###             #shutil.rmtree(expand_dir)
-###         except:
-###             raise
-### 
-### 
-###         # TODO: for now we just delete everything at the end
-###         #print "DELETING: %s " % scratch_dir
-###         shutil.rmtree(scratch_dir)
-###         #%%%%
-### 
-
-##
-# TODO: Possibly use a URL style path for 'filePath' so we can curl/wget
-#       from remote source if needed, e.g., 'file:///path/to/file.save.tar'
-##
-# TJN: load_image: HACKED from old Deprecated 'pull_image'
-def load_image(options, cachedir='./', expanddir='./'):
-    """
-
-    Uber function to load the manifest, layers, and extract the layers
-    from a saved OCI Image Spec v1.1.0 container archive 
-    (i.e., we assume a 'manifest.json').
-
-    https://github.com/docker/docker-ce/blob/master/components/engine/image/spec/v1.1.md#combined-image-json--filesystem-changeset-format
-
-    """
-
-    if options is None:
-        raise ValueError('Invalid (empty) DockerSaveFileHandle options')
-    if 'filePath' not in options:
-        raise ValueError('Missing filePath in DockerSaveFileHandle options')
-
-    handle = DockerSaveFileHandle(options)
-    handle.tjn_debug_dump()
-
-    ##########
-    # TODO:
-    #   0. Where can we unpack the tarfile archive?
-    #   1. Unpack tarfile archive at 'file_path'
-    #   2. Load the 'manifest.json' file from the archive
-    #         json_data = open('manifest.json')
-    #         data = json.load(json_data)
-    #         config_info = data[0]['Config']
-    #         repotag = data[0]['RepoTags'][0]
-    #         repo, tag = repotag.split(":")
-    #         layers = data[0]['Layers']
-    #   3. 
-    #         
-    # TJN: I think we should just pull the Repo and Tag from manifest.json
-    #      using data[0]['RepoTags']
-    ##########
-
-    print "about to get manifest"
-    manifest = handle.get_image_manifest()
-    handle.tjn_debug_dump()
-
-    if 'id' in manifest:
-        print "Manifest[id] = %s" % manifest['id']
-
-    #(eldest, youngest) = handle.construct_savefile_metadata(manifest)
-    #layer = eldest
-    #print "about to get layers"
-    #while layer is not None:
-    #    print "about to pull layer: ", layer['fsLayer']['blobSum']
-    #    handle.save_layer(layer['fsLayer']['blobSum'], cachedir)
-    #    layer = layer['child']
-    #
-    #layer = eldest
-    #meta = youngest
-    #resp = {'id':meta['id']}
-    #expandedpath = os.path.join(expanddir, str(meta['id']))
-    #resp['expandedpath'] = expandedpath
-    #if 'config' in meta:
-    #    config = meta['config']
-    #    if 'Env' in config:
-    #        resp['env'] = config['Env']
-    #    if 'Entrypoint' in config:
-    #        resp['entrypoint'] = config['Entrypoint']
-
-    #if not os.path.exists(expandedpath):
-    #    os.mkdir(expandedpath)
-
-    #handle.extract_docker_layers(expandedpath, layer, cachedir=cachedir)
-    #return resp
-    print "DEBUG: WORK IN PROGRESS"
-    #resp = {'id':0xDEADBEEF}
-    resp = {'id':manifest['id']}
-
-    return resp
-
-####
+# # load_image: Based on (deprecated) 'pull_image'
+# def load_image(options, cachedir='./', expanddir='./'):
+#     """
+#
+#     Uber function to load the manifest, layers, and extract the layers
+#     from a saved OCI Image Spec v1.1.0 container archive
+#     (i.e., we assume a 'manifest.json').
+#
+#     https://github.com/docker/docker-ce/blob/master/components/engine/image/spec/v1.1.md#combined-image-json--filesystem-changeset-format
+#
+#     """
+#
+#     if options is None:
+#         raise ValueError('Invalid (empty) DockerSaveFileHandle options')
+#     if 'filePath' not in options:
+#         raise ValueError('Missing filePath in DockerSaveFileHandle options')
+#
+#     handle = DockerSaveFileHandle(options)
+#     handle.tjn_debug_dump()
+#
+#     print "about to get manifest"
+#     manifest = handle.get_image_manifest()
+#     handle.tjn_debug_dump()
+#
+#     if 'id' in manifest:
+#         print "Manifest[id] = %s" % manifest['id']
+#
+#     #(eldest, youngest) = handle.construct_savefile_metadata(manifest)
+#     #layer = eldest
+#     #print "about to get layers"
+#     #while layer is not None:
+#     #    print "about to pull layer: ", layer['fsLayer']['blobSum']
+#     #    handle.save_layer(layer['fsLayer']['blobSum'], cachedir)
+#     #    layer = layer['child']
+#     #
+#     #layer = eldest
+#     #meta = youngest
+#     #resp = {'id':meta['id']}
+#     #expandedpath = os.path.join(expanddir, str(meta['id']))
+#     #resp['expandedpath'] = expandedpath
+#     #if 'config' in meta:
+#     #    config = meta['config']
+#     #    if 'Env' in config:
+#     #        resp['env'] = config['Env']
+#     #    if 'Entrypoint' in config:
+#     #        resp['entrypoint'] = config['Entrypoint']
+#
+#     #if not os.path.exists(expandedpath):
+#     #    os.mkdir(expandedpath)
+#
+#     #handle.extract_docker_layers(expandedpath, layer, cachedir=cachedir)
+#     #return resp
+#     print "DEBUG: WORK IN PROGRESS"
+#     #resp = {'id':0xDEADBEEF}
+#     resp = {'id':manifest['id']}
+#
+#     return resp
+# ####
 
 
 def main():
     """Harness for manual testing."""
     cache_dir = os.environ['TMPDIR']
-    #pull_image({'baseUrl':'https://registry-1.docker.io'}, 'dlwoodruff/pyomodock', \
-    #        '4.3.1137', cachedir=cache_dir, expanddir=cache_dir)
+    pull_image({'baseUrl':'https://registry-1.docker.io'}, 'dlwoodruff/pyomodock', \
+            '4.3.1137', cachedir=cache_dir, expanddir=cache_dir)
 
-    #pull_image({'baseUrl':'https://registry-1.docker.io'}, 
-    #            'naughtont3/bb-hellosleep', 'latest', 
-    #            cachedir=cache_dir, expanddir=cache_dir)
+    pull_image({'baseUrl':'https://registry-1.docker.io'},
+                'naughtont3/bb-hellosleep', 'latest',
+                cachedir=cache_dir, expanddir=cache_dir)
 
-    load_image({'filePath':'/tmp/testing/tjntest.save.tar'}, 
+    load_image({'filePath':'/tmp/testing/tjntest.save.tar'},
                 cachedir=cache_dir, expanddir=cache_dir)
 
 if __name__ == '__main__':
