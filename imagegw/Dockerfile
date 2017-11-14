@@ -1,6 +1,6 @@
 FROM python:2.7-slim
 
-RUN apt-get update && apt-get -y install openssh-client squashfs-tools munge
+RUN apt-get update && apt-get -y install openssh-client squashfs-tools munge vim
 RUN echo "   StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 RUN mkdir /var/run/munge && chown munge /var/run/munge
 

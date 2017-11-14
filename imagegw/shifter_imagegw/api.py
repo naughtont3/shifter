@@ -96,7 +96,7 @@ def not_found(error=None):
 @app.route('/')
 def apihelp():
     """ API helper return """
-    return "{lookup,pull,expire,list}"
+    return "{lookup,pull,expire,list,load}"
 
 
 def create_response(rec):
@@ -288,6 +288,68 @@ def doimport(system, imgtype, tag):
         app.logger.debug(rec)
     except:
         app.logger.exception('Exception in import')
+        return not_found('%s %s' % (sys.exc_type, sys.exc_value))
+    return jsonify(create_response(rec))
+
+
+# TJN: Using doimport PR-176/PR-188 as guide
+# Load image
+# This will load the requested save.tar image.
+@app.route('/api/load/<system>/<imgtype>/<path:tag>/', methods=["POST"])
+def load(system, imgtype, tag):
+    """ Load a specific image and tag for a systems. """
+    if imgtype == "docker" and tag.find(':') == -1:
+        tag = '%s:latest' % (tag)
+
+    auth = request.headers.get(AUTH_HEADER)
+    memo = "Entering load"
+    app.logger.debug(memo)
+
+    # TJN: Following guide/form of doimport PRs (#174, #188)
+    data = {}
+    try:
+        rqd = request.get_data()
+        app.logger.debug("rqd '%s'" % (rqd))
+        if rqd is not "" and rqd is not None:
+            data = json.loads(rqd)
+            app.logger.debug("data '%s'" % (data))
+    except:
+        app.logger.warn("Unable to parse load data '%s'" %
+                        (request.get_data()))
+        pass
+
+    memo = "load system=%s imgtype=%s tag=%s" % (system, imgtype, tag)
+    app.logger.debug(memo)
+
+    i = {'system':system, 'itype':imgtype, 'tag':tag}
+    app.logger.debug("print data '%s'" % (data))
+
+    # Check for path to save.tar file
+    if 'filePath' in data:
+        i['filePath'] = data['filePath']
+    else:
+        raise OSError("filePath required for load image")
+    if 'format' in data:
+        i['format'] = data['format']
+    else:
+        raise OSError("file type (e.g., savetar) required for load image")
+
+    # TODO: Check for listof allowed users or groups
+    #       Add userACL and groupACL stuff.
+
+    try:
+        app.logger.debug(i)
+        session = mgr.new_session(auth, system)
+        app.logger.debug(session)
+
+        # TODO: only allowed users can import images
+        #       Add userACL checks here.
+
+        rec = mgr.load(session, i)
+        app.logger.debug(rec)
+
+    except:
+        app.logger.exception('Exception in load')
         return not_found('%s %s' % (sys.exc_type, sys.exc_value))
     return jsonify(create_response(rec))
 

@@ -117,6 +117,14 @@ class WorkerThreads(object):
                     'message': str(err)}
             updater.update_status('FAILURE', 'FAILURE', response=resp)
 
+    def wrkload(self, request, updater, testmode=0):
+        try:
+            doload(request, updater, testmode=testmode)
+        except Exception as err:
+            resp = {'error_type': str(type(err)),
+                    'message': str(err)}
+            updater.update_status('FAILURE', 'FAILURE', response=resp)
+
     def dopull(self, ident, request, testmode=0):
         """
         Kick off a pull operation.
@@ -133,6 +141,12 @@ class WorkerThreads(object):
         logging.debug("wrkimport starting")
         updater = Updater(ident, self.updater)
         self.pools.apply_async(self.wrkimport, [request, updater],
+                               {'testmode': testmode})
+
+    def dowrkload(self, ident, request, testmode=0):
+        logging.debug("wrkload starting")
+        updater = Updater(ident, self.updater)
+        self.pools.apply_async(self.wrkload, [request, updater],
                                {'testmode': testmode})
 
 
@@ -247,6 +261,66 @@ def pull_image(request, updater):
     else:
         raise NotImplementedError('Unsupported remote type %s' % rtype)
     return False
+
+def _load_docker_savefile(request, filepath, updater):
+    """ Private method to load a docker safe-file images. """
+    cdir = CONFIG['CacheDirectory']
+    edir = CONFIG['ExpandDirectory']
+
+    try:
+        options = {}
+        options['filePath'] = filepath
+
+        logging.debug("LoadFile: 1 - Get Handle")
+
+        dfh = dockerv2.DockerSaveFileHandle(options, updater=updater)
+
+        updater.update_status("LOADING", 'Extracting Layers')
+
+        logging.debug("LoadFile: 2 - Call Inflate")
+
+        # TJN - HACK Put driver code in single routine
+        manifest = dfh.inflate_savefile(options, edir, cdir)
+
+        logging.debug("LoadFile: 3 - Setup Request Data")
+
+        # TJN - Manually set items we know are needed by caller
+        request['id']           = dfh.image_id
+        request['meta']['id']   = dfh.image_id
+        request['meta']['repo'] = dfh.repo
+        request['meta']['tag']  = dfh.tag
+
+        if 'env' in options:
+            request['meta']['env']  = options['env']
+        if 'entrypoint' in options:
+            request['meta']['entrypoint']  = options['entrypoint']
+        if 'workdir' in options:
+            request['meta']['workdir']  = options['workdir']
+
+        expandedpath = os.path.join(edir, '%s' % request['id'])
+        request['expandedpath'] = expandedpath
+
+        return True
+
+    except:
+        logging.debug("Failed during _load_docker_savefile")
+        logging.warn(sys.exc_value)
+        raise
+
+    return False
+
+def load_image(request, updater=DEFAULT_UPDATER):
+    """
+    load the save-image file and extract the contents
+
+    Returns True on success
+    """
+    if 'filePath' not in request:
+        raise KeyError('%s not found in request' % 'filePath')
+
+    filepath = request['filePath']
+    logging.debug("doing image load for file=%s", filepath)
+    return _load_docker_savefile(request, filepath, updater)
 
 
 def examine_image(request):
@@ -578,3 +652,164 @@ def img_import(request, updater, testmode=0):
         # TODO: add a debugging flag and only disable cleanup if debugging
         cleanup_temporary(request)
         raise
+
+def doload(self, request, testmode=0):
+    """
+    Celery task to do the load workflow of loading an image and processing it
+    """
+    logging.debug("doload system=%s tag=%s", request['system'], request['tag'])
+    updater = Updater(self.update_state)
+
+    tag = request['tag']
+    logging.debug("Worker: doload system=%s tag=%s file=%s",
+                  request['system'], tag, request['filePath'])
+
+    if testmode == 1:
+        states = ('LOADING', 'EXAMINATION', 'CONVERTING', 'TRANSFER', 'READY')
+        for state in states:
+            logging.info("Worker: testmode Updating to %s", state)
+            updater.update_status(state, state)
+            sleep(1)
+        ident = '%x' % randint(0, 100000)
+        ret = {
+            'id': ident,
+            'entrypoint': ['./blah'],
+            'workdir': '/root',
+            'env':['FOO=bar', 'BAZ=boz']
+        }
+        return ret
+    elif testmode == 2:
+        logging.info("Worker: testmode 2 setting failure")
+        raise OSError('task failed')
+    try:
+
+        sysconf = CONFIG['Platforms'][request['system']]
+
+        logging.debug("Worker: doload call transfer.check_file sysconf=%s file=%s",
+                      sysconf, request['filePath'])
+
+        if not transfer.check_file(request['filePath'], sysconf, logging,
+                                   import_image=True):
+            raise OSError("Path not valid")
+
+        # TJN: Can we have these be the same, my DockerSaveFile code assumes
+        #      we are passing the archive info via the path in 'filePath'?
+        # Set the destination location file used in transfer_image()
+        request['imagefile'] = os.path.basename(request['filePath'])
+
+        # TODO: Change 'filePath' to 'filepath' to match doimport naming
+        request['filepath'] = request['filePath']
+
+        logging.debug("Worker: filePath %s  imagefile %s", \
+                      request['filePath'], request['imagefile'])
+
+        logging.debug("Worker: doload Step-0. call transfer_image")
+
+        # TJN: We need the transfer file pieces from PR#176/#188
+        if not transfer_image(request, import_image=True):
+            logging.debug("Worker: failed transfering archive %s", \
+                          request['filePath'])
+            logging.info("Worker: failed transfering archive %s", \
+                         request['filePath'])
+            raise OSError("Failed transfering archive")
+
+        # FIXME: SET PROPER TRANSFER LOCATION INFO
+#        system = request['system']
+#        if system not in CONFIG['Platforms']:
+#            raise KeyError('%s is not in the configuration' % system)
+#        sysconf = CONFIG['Platforms'][system]
+#        basepath = system['local']['imageDir']
+#        basepath = system['ssh']['imageDir']
+
+        tmpfname = os.path.basename(request['filePath'])
+        request['filePath'] = os.path.join(CONFIG['CacheDirectory'], tmpfname)
+
+        logging.debug("Worker: doload Step-1b. HACK pathing %s", request['filePath'])
+
+        logging.debug("Worker: doload Step-1. call load_image")
+
+        # Step-1. LOAD save.tar archive
+        updater.update_status('LOADING', 'LOADING')
+        print "loading image %s" % request['filePath']
+
+        if 'meta' not in request:
+            request['meta'] = {}
+
+        if not load_image(request, updater=updater):
+            print "doload failed"
+            logging.info("Worker: Load failed")
+            raise OSError('Load failed')
+
+        if 'meta' not in request:
+            raise OSError('Metadata not populated')
+
+        # TODO: See if we need to modify the 'check_image() routine for
+        #       filepath case???
+
+        logging.debug("Worker: doload Step-2. call check_image")
+
+        # Step-2. CHECK image
+        if not check_image(request):
+
+            logging.debug("Worker: doload Step-2. CHECK")
+
+            # Step 2 - CHECK image
+            updater.update_status('EXAMINATION', 'Examining archive')
+            print "Worker: examining image %s file %s" % (request['tag'], request['filePath'])
+            if not examine_image(request):
+                raise OSError('Examine failed')
+        
+            logging.debug("Worker: doload Step-3. CONVERT")
+
+            # Step-3. CONVERT
+            updater.update_status('CONVERSION', 'Converting image')
+            print "Worker: converting image %s" % request['tag']
+            if not convert_image(request):
+                raise OSError('Conversion failed')
+            if not write_metadata(request):
+                raise OSError('Metadata creation failed')
+
+            logging.debug("Worker: doload Step-4. TRANSFER ")
+
+            # Step 4 - TRANSFER
+            updater.update_status('TRANSFER', 'Transferring image')
+            logging.info("Worker: transferring image %s", request['tag'])
+            print "Worker: transferring image %s" % request['tag']
+            if not transfer_image(request):
+                raise OSError('Transfer failed')
+
+        logging.debug("Worker: doload Step-5. CLEANUP")
+
+        if 'expandedpath' in request:
+            logging.debug("Worker: doload Step-5. DBG expandedpath='%s'",
+                          request['expandedpath'])
+        else:
+            logging.debug("Worker: doload Step-5. DBG NO expandedpath key")
+
+        if 'imagefile' in request:
+            logging.debug("Worker: doload Step-5. DBG imagefile='%s'",
+                          request['imagefile'])
+        else:
+            logging.debug("Worker: doload Step-5. DBG NO imagefile key")
+
+        if 'metafile' in request:
+            logging.debug("Worker: doload Step-5. DBG metafile='%s'",
+                          request['metafile'])
+        else:
+            logging.debug("Worker: doload Step-5. DBG NO metafile key")
+
+        # Step-5. DONE, cleanup
+        updater.update_status('READY', 'Image ready')
+        cleanup_temporary(request)
+        return request['meta']
+
+    except:
+        logging.error("ERROR: doload failed system=%s tag=%s", \
+                      request['system'], request['tag'])
+        print sys.exc_value
+        self.update_state(state='FAILURE')
+
+        # TODO: Make sure cleanup understands how to cleanup load case
+        cleanup_temporary(request)
+        raise
+

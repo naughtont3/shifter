@@ -24,11 +24,15 @@ restartgw:
 	docker build -t imagegwapi .
 	docker-compose up -d
 
+#	$(eval IP=$(shell docker-machine ip $(shell docker-machine active)))
+#	@echo "ssh -i test/config/ssh.key $(IP) -p $(PORT)"
 getssh:
-	$(eval IP=$(shell docker-machine ip $(shell docker-machine active)))
 	$(eval PORT=$(shell docker-compose ps systema|grep systema|sed 's/.*://'|sed 's/-.*//'))
+	@docker inspect systema | grep IPAddr
 	@echo "To connect, do:"
-	@echo "ssh -i test/config/ssh.key $(IP) -p $(PORT)"
+	@echo "ssh -i test/config/ssh.key root@localhost -p $(PORT)"
+	@echo "  --or--"
+	@echo "ssh -i test/config/ssh.key root@172.17.0.x -p $(PORT)"
 
 cleanup:
 	docker-compose stop
