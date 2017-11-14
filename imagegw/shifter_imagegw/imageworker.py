@@ -343,7 +343,8 @@ def check_image(request):
 
     return transfer.imagevalid(sysconf, image_filename, image_metadata, logging)
 
-def transfer_image(request):
+# TJN: Few updates taken from PR-176 imgimport
+def transfer_image(request, meta_only=False, import_image=False):
     """
     Transfers the image to the target system based on the configuration.
 
@@ -356,7 +357,15 @@ def transfer_image(request):
     meta = None
     if 'metafile' in request:
         meta = request['metafile']
-    return transfer.transfer(sysconf, request['imagefile'], meta, logging)
+    if meta_only:
+        request['meta']['meta_only'] = True
+        return transfer.transfer(sysconf, None, meta, logging)
+    else:
+        if not import_image:
+            return transfer.transfer(sysconf, request['imagefile'], meta, logging, import_image)
+        else:
+            return transfer.transfer(sysconf, request['filepath'], meta, logging, import_image, request['imagefile'])
+
 
 def remove_image(request):
     """
@@ -375,11 +384,14 @@ def remove_image(request):
     return transfer.remove(sysconf, imagefile, meta, logging)
 
 
-def cleanup_temporary(request):
+def cleanup_temporary(request, import_image=False):
     """
     Helper function to cleanup any temporary files or directories.
     """
-    items = ('expandedpath', 'imagefile', 'metafile')
+    if not import_image:
+        items = ('expandedpath', 'imagefile', 'metafile')
+    else:
+        items = ('expandedpath', 'metafile')
     for item in items:
         if item not in request or request[item] is None:
             continue
@@ -584,6 +596,7 @@ def doload(self, request, testmode=0):
             print "Worker: examining image %s file %s" % (request['tag'], request['filePath'])
             if not examine_image(request):
                 raise OSError('Examine failed')
+        
             logging.debug("Worker: doload Step-3. CONVERT")
 
             # Step-3. CONVERT
