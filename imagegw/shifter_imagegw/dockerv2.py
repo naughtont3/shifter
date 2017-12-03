@@ -1102,7 +1102,7 @@ class DockerSaveFileHandle(object):
         if 'repo' not in config:
             config['repo'] = self.repo
         if 'tag' not in config:
-            config['repo'] = self.tag
+            config['tag'] = self.tag
 
         #return config
 
