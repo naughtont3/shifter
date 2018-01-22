@@ -533,24 +533,36 @@ def doload(self, request, testmode=0):
         # TJN: Can we have these be the same, my DockerSaveFile code assumes
         #      we are passing the archive info via the path in 'filePath'?
         # Set the destination location file used in transfer_image()
-        request['imagefile'] = os.path.basename(request['filePath'])
+###
+#        request['imagefile'] = os.path.basename(request['filePath'])
 
         # TODO: Change 'filePath' to 'filepath' to match doimport naming
         request['filepath'] = request['filePath']
+###
+#         tmpf1 = os.path.basename(request['filePath'])
+#         edir1 = CONFIG['ExpandDirectory']
+#         #request['imagefile'] = os.path.join('/tmp', tmpf1)
+#         request['imagefile'] = os.path.join(edir1, tmpf1)
+        tmpf1 = os.path.basename(request['filePath'])
+#        #request['filepath'] =
+#        #request['filePath'] =
+        request['imagefile'] = os.path.join('/tmp/testing', tmpf1)
+###
 
         logging.debug("Worker: filePath %s  imagefile %s", \
                       request['filePath'], request['imagefile'])
 
         logging.debug("Worker: doload Step-0. call transfer_image")
 
+        # TJN: FIXME fix pathings for import_image=TRUE
         # TJN: We need the transfer file pieces from PR#176/#188
-        if not transfer_image(request, import_image=True):
+#        if not transfer_image(request, import_image=True):
+        if not transfer_image(request, import_image=False):
             logging.debug("Worker: failed transfering archive %s", \
                           request['filePath'])
-            logging.info("Worker: failed transfering archive %s", \
-                         request['filePath'])
             raise OSError("Failed transfering archive")
 
+###
         # FIXME: SET PROPER TRANSFER LOCATION INFO
 #        system = request['system']
 #        if system not in CONFIG['Platforms']:
@@ -561,6 +573,18 @@ def doload(self, request, testmode=0):
 
         tmpfname = os.path.basename(request['filePath'])
         request['filePath'] = os.path.join(CONFIG['CacheDirectory'], tmpfname)
+
+        # TODO: Cleanup pathing
+        # TJN: use path we used for copy_image/transfer_image above
+        tmpf2 = os.path.basename(request['filePath'])
+        #edir2 = '/images' # HARDCODE what should be CONFIG['Platforms']...['ssh']['imageDir']
+        edir2 = '/tmp/testing' # HARDCODE what should be CONFIG['Platforms']...['ssh']['imageDir']
+        #logging.debug("Worker: doload Step-1b. HACK FORCE /IMAGES DIR edir2: '%s' tmpf2: '%s'", edir2, tmpf2)
+        logging.debug("Worker: doload Step-1b. HACK FORCE /tmp/testing DIR edir2: '%s' tmpf2: '%s'", edir2, tmpf2)
+        request['imagefile'] = os.path.join(edir2, tmpf2)
+        request['filePath'] = os.path.join(edir2, tmpf2)
+        request['filepath'] = os.path.join(edir2, tmpf2)
+###
 
         logging.debug("Worker: doload Step-1b. HACK pathing %s", request['filePath'])
 
@@ -596,7 +620,7 @@ def doload(self, request, testmode=0):
             print "Worker: examining image %s file %s" % (request['tag'], request['filePath'])
             if not examine_image(request):
                 raise OSError('Examine failed')
-        
+
             logging.debug("Worker: doload Step-3. CONVERT")
 
             # Step-3. CONVERT
